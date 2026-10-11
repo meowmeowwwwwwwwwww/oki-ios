@@ -48,7 +48,19 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate 
     web.allowsLinkPreview = false
     web.navigationDelegate = self
     web.uiDelegate = self
-    view = web
+    // the page ends where the keyboard begins: otherwise the keyboard covers the field you type in
+    let root = UIView()
+    root.backgroundColor = mist
+    root.keyboardLayoutGuide.usesBottomSafeArea = false
+    web.translatesAutoresizingMaskIntoConstraints = false
+    root.addSubview(web)
+    NSLayoutConstraint.activate([
+      web.topAnchor.constraint(equalTo: root.topAnchor),
+      web.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      web.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+      web.bottomAnchor.constraint(equalTo: root.keyboardLayoutGuide.topAnchor),
+    ])
+    view = root
   }
 
   override func viewDidLoad() {
