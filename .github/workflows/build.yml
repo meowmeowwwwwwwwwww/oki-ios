@@ -1,0 +1,27 @@
+# Builds Oki.ipa (unsigned) on every push and puts it into a GitHub release:
+# https://github.com/meowmeowwwwwwwwwww/oki-ios/releases/latest/download/Oki.ipa
+name: build
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: >
+          xcodebuild -project Oki.xcodeproj -scheme Oki -configuration Release
+          -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Oki.app Payload/
+          zip -qry Oki.ipa Payload
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "build-${{ github.run_number }}" Oki.ipa --title "Oki ${{ github.run_number }}" --notes "Сборка из ${{ github.sha }}" --latest
