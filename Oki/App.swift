@@ -74,7 +74,8 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate 
   // target="_blank"
   func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-    if let url = action.request.url { ours(url) ? webView.load(action.request) : UIApplication.shared.open(url) }
+    guard let url = action.request.url else { return nil }
+    if ours(url) { webView.load(action.request) } else { UIApplication.shared.open(url) }
     return nil
   }
 
