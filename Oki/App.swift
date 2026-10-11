@@ -30,6 +30,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate {
   private var web: WKWebView!
+  private var bottom: NSLayoutConstraint!
 
   override var preferredStatusBarStyle: UIStatusBarStyle { .darkContent }
 
@@ -51,21 +52,56 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate 
     // the page ends where the keyboard begins: otherwise the keyboard covers the field you type in
     let root = UIView()
     root.backgroundColor = mist
-    root.keyboardLayoutGuide.usesBottomSafeArea = false
     web.translatesAutoresizingMaskIntoConstraints = false
     root.addSubview(web)
+    bottom = web.bottomAnchor.constraint(equalTo: root.bottomAnchor)
     NSLayoutConstraint.activate([
       web.topAnchor.constraint(equalTo: root.topAnchor),
       web.leadingAnchor.constraint(equalTo: root.leadingAnchor),
       web.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-      web.bottomAnchor.constraint(equalTo: root.keyboardLayoutGuide.topAnchor),
+      bottom,
     ])
     view = root
   }
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    hideFormBar()
+    let nc = NotificationCenter.default
+    nc.addObserver(self, selector: #selector(keyboard), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+    nc.addObserver(self, selector: #selector(keyboard), name: UIResponder.keyboardWillHideNotification, object: nil)
     web.load(URLRequest(url: site))
+  }
+
+  // keyboard up: the page gets shorter by the part the keyboard covers; keyboard down: full screen again
+  @objc private func keyboard(_ n: Notification) {
+    guard let info = n.userInfo, let end = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+    let kb = view.convert(end, from: nil)
+    let cover = n.name == UIResponder.keyboardWillHideNotification ? 0 : max(0, view.bounds.maxY - kb.minY)
+    if bottom.constant == -cover { return }
+    let time = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+    let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+    bottom.constant = -cover
+    UIView.animate(withDuration: time, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
+      self.view.layoutIfNeeded()
+    }
+  }
+
+  // no «˄ ˅ ✓» bar above the keyboard: the page has its own buttons. WebKit's text view is a private class,
+  // so we give it a subclass that answers «no accessory view» (the same trick Capacitor and Cordova use).
+  private func hideFormBar() {
+    guard let content = web.scrollView.subviews.first(where: { String(describing: type(of: $0)).hasPrefix("WKContent") }),
+          let base: AnyClass = object_getClass(content) else { return }
+    let name = "OkiNoBar_" + NSStringFromClass(base)
+    var cls: AnyClass? = NSClassFromString(name)
+    if cls == nil, let made = objc_allocateClassPair(base, name, 0) {
+      let none: @convention(block) (AnyObject) -> AnyObject? = { _ in nil }
+      let sel = #selector(getter: UIResponder.inputAccessoryView)
+      class_addMethod(made, sel, imp_implementationWithBlock(none), "@@:")
+      objc_registerClassPair(made)
+      cls = made
+    }
+    if let cls { object_setClass(content, cls) }
   }
 
   private func ours(_ url: URL) -> Bool {
