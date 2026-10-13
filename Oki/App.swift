@@ -28,7 +28,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   }
 }
 
-final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate {
+final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
   private var web: WKWebView!
   private var bottom: NSLayoutConstraint!
 
@@ -40,6 +40,8 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate 
     cfg.limitsNavigationsToAppBoundDomains = true
     cfg.allowsInlineMediaPlayback = true
     cfg.websiteDataStore = .default()
+    // the web app tells the shell where Даша's repo is, so «Отправить заметки в Oki» can reach it (Notes.swift)
+    cfg.userContentController.add(self, name: "oki")
     web = WKWebView(frame: .zero, configuration: cfg)
     web.isOpaque = false
     web.backgroundColor = mist
@@ -102,6 +104,14 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate 
       cls = made
     }
     if let cls { object_setClass(content, cls) }
+  }
+
+  // {token, owner, repo, key} after the repo is connected; null when it is forgotten
+  func userContentController(_ uc: WKUserContentController, didReceive m: WKScriptMessage) {
+    guard m.frameInfo.isMainFrame, m.frameInfo.securityOrigin.host == site.host else { return }
+    guard let d = m.body as? [String: Any], let token = d["token"] as? String, let owner = d["owner"] as? String,
+          let repo = d["repo"] as? String, let key = d["key"] as? String else { return Repo.save(nil) }
+    Repo.save(.init(token: token, owner: owner, repo: repo, key: key))
   }
 
   private func ours(_ url: URL) -> Bool {
