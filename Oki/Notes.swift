@@ -70,6 +70,7 @@ struct SendNotes: AppIntent {
     }
     sent = Array((sent + hashes).suffix(500))
     d.set(sent, forKey: Self.sentKey)
+    await Bell.shared.refresh() // a good moment to look for new tasks too (Notify.swift)
     return .result()
   }
 

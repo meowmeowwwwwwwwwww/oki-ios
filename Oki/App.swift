@@ -8,6 +8,11 @@ let mist = UIColor(red: 0xE9 / 255, green: 0xEB / 255, blue: 0xF0 / 255, alpha: 
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
+  func application(_ application: UIApplication, didFinishLaunchingWithOptions o: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    Bell.register() // reminders: tap handling and the background refresh (Notify.swift)
+    return true
+  }
+
   func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                    options: UIScene.ConnectionOptions) -> UISceneConfiguration {
     let c = UISceneConfiguration(name: nil, sessionRole: session.role)
@@ -26,6 +31,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     w.makeKeyAndVisible()
     window = w
   }
+  func sceneDidEnterBackground(_ scene: UIScene) { Bell.later() }
+  func sceneDidBecomeActive(_ scene: UIScene) { Task { await Bell.shared.tell() } }
 }
 
 final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
@@ -42,6 +49,8 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate,
     cfg.websiteDataStore = .default()
     // the web app tells the shell where Даша's repo is, so «Отправить заметки в Oki» can reach it (Notes.swift)
     cfg.userContentController.add(self, name: "oki")
+    // and hands over the list of reminders after every change (Notify.swift)
+    cfg.userContentController.add(self, name: "okiNotify")
     web = WKWebView(frame: .zero, configuration: cfg)
     web.isOpaque = false
     web.backgroundColor = mist
@@ -73,6 +82,22 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate,
     nc.addObserver(self, selector: #selector(keyboard), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
     nc.addObserver(self, selector: #selector(keyboard), name: UIResponder.keyboardWillHideNotification, object: nil)
     web.load(URLRequest(url: site))
+    Bell.shared.report = { [weak self] st in self?.web.evaluateJavaScript("window.okiBell && okiBell('\(st)')") }
+    Bell.shared.show = { [weak self] go in // a tap while the page is still loading waits for it (didFinish)
+      guard let self else { return }
+      if self.web.isLoading { Bell.shared.waiting = go } else { self.go(go) }
+    }
+  }
+
+  // a tapped reminder opens its task
+  private func go(_ hash: String) {
+    guard hash.hasPrefix("#/"), let js = try? JSONSerialization.data(withJSONObject: [hash]), let arr = String(data: js, encoding: .utf8) else { return }
+    web.evaluateJavaScript("location.hash = \(arr)[0]")
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    Task { await Bell.shared.tell() }
+    if let w = Bell.shared.waiting { Bell.shared.waiting = nil; go(w) }
   }
 
   // keyboard up: the page gets shorter by the part the keyboard covers; keyboard down: full screen again
@@ -109,6 +134,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKUIDelegate,
   // {token, owner, repo, key} after the repo is connected; null when it is forgotten
   func userContentController(_ uc: WKUserContentController, didReceive m: WKScriptMessage) {
     guard m.frameInfo.isMainFrame, m.frameInfo.securityOrigin.host == site.host else { return }
+    if m.name == "okiNotify" { return Bell.shared.fromApp(m.body) }
     guard let d = m.body as? [String: Any], let token = d["token"] as? String, let owner = d["owner"] as? String,
           let repo = d["repo"] as? String, let key = d["key"] as? String else { return Repo.save(nil) }
     Repo.save(.init(token: token, owner: owner, repo: repo, key: key))
